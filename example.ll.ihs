@@ -1,0 +1,27 @@
+{{for_ [0..32] $ \i ->}}
+define fastcc void @app{{=i}}(i64* %sp, i64 %clos{{for_ [1..i] $ \j ->}}, i64 %a{{=j}}{{end}}) noreturn nounwind {
+  %clos_ptr = inttoptr i64 %clos to i64*
+  %arity_ptr = getelementptr inbounds i64, i64* %clos_ptr, i64 1
+  %arity = load i64, i64* %arity_ptr
+  %fn = load i64, i64* %clos_ptr
+
+  switch i64 %arity, label %partial [{{for_ [0..i - 1] $ \j ->}}
+    i64 {{=j}}, label %overapply{{=j}}{{end}}
+    i64 {{=i}}, label %apply
+  ]
+{{for_ [0..i - 1] $ \j ->}}
+overapply{{=j}}:
+  %fn{{=j}} = inttoptr i64 %fn to void (i64*, i64{{replicateM_ j $ do}}, i64{{end}})*
+  ...
+  ret void
+{{end}}
+apply:
+  %fn{{=i}} = inttoptr i64 %fn to void (i64*, i64{{replicateM_ i $ do}}, i64{{end}})*
+  tail call void %fn{{=i}}(i64* %sp, i64 %clos{{for_ [1..i] $ \j ->}}, i64 %a{{=j}}{{end}})
+  ret void
+
+partial:
+  ...
+  ret void
+}
+{{end}}
