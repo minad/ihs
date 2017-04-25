@@ -1,34 +1,41 @@
 #!/usr/bin/env runhaskell
+module Main (main) where
 
-import Data.List (isSuffixOf, isPrefixOf, partition, stripPrefix, dropWhileEnd)
+import Data.Char (isSpace)
+import Data.List (isSuffixOf, isPrefixOf, partition, dropWhileEnd)
+import Data.List.NonEmpty (NonEmpty(..), (<|))
 import System.Environment (getArgs)
 import System.Process (readProcess)
-import Data.Char (isSpace)
+
+data Block
+  = Comment
+  | Code
+  | Output
+  deriving (Show)
+
+data Strip
+  = Strip
+  | Keep
+  deriving (Show)
 
 data Token
   = String String
-  | Output Bool Bool String
-  | Block  Bool Bool String
+  | Block  Block Strip Strip String
   deriving (Show)
 
-stripSuffix :: Eq a => [a] -> [a] -> Maybe [a]
-stripSuffix s t = reverse <$> stripPrefix (reverse s) (reverse t)
+type Indent = NonEmpty Int
 
-dropSpace :: String -> String
-dropSpace = dropSpaceBegin . dropSpaceEnd
-
-dropSpaceBegin :: String -> String
+dropSpace, dropSpaceBegin, dropSpaceEnd :: String -> String
+dropSpace      = dropSpaceBegin . dropSpaceEnd
 dropSpaceBegin = dropWhile isSpace
-
-dropSpaceEnd :: String -> String
-dropSpaceEnd = dropWhileEnd isSpace
+dropSpaceEnd   = dropWhileEnd isSpace
 
 parse :: String -> [Token]
-parse ('{':'{':'-':'-':s) = parseBlock (\a b -> Block True a ("{-" ++ b ++ "-}")) s
-parse ('{':'{':'-':'=':s) = parseBlock (Output True)  s
-parse ('{':'{':'=':s)     = parseBlock (Output False) s
-parse ('{':'{':'-':s)     = parseBlock (Block True)   s
-parse ('{':'{':s)         = parseBlock (Block False)  s
+parse ('{':'{':'-':'-':s) = parseBlock (Block Comment Strip) s
+parse ('{':'{':'-':'=':s) = parseBlock (Block Output  Strip) s
+parse ('{':'{':'=':s)     = parseBlock (Block Output  Keep)  s
+parse ('{':'{':'-':s)     = parseBlock (Block Code    Strip) s
+parse ('{':'{':s)         = parseBlock (Block Code    Keep)  s
 parse (c:s)               = parseString [c] s
 parse []                  = []
 
@@ -37,45 +44,54 @@ parseString s []            = [String (reverse s)]
 parseString s t@('{':'{':_) = String (reverse s) : parse t
 parseString t (c:s)         = parseString (c:t) s
 
-parseBlock :: (Bool -> String -> Token) -> String -> [Token]
+parseBlock :: (Strip -> String -> Token) -> String -> [Token]
 parseBlock f s = go [] (dropSpace s)
-  where go a ('-':'}':'}':t) = f True  (reverse $ dropSpace a) : parse t
-        go a ('}':'}':t)     = f False (reverse $ dropSpace a) : parse t
+  where go a ('-':'}':'}':t) = f Strip (reverse $ dropSpace a) : parse t
+        go a ('}':'}':t)     = f Keep  (reverse $ dropSpace a) : parse t
         go a (c:t)           = go (c:a) t
-        go _ []              = error "Unexpected end"
+        go _ []              = error "Expected end of block }}"
 
 strip :: [Token] -> [Token]
-strip (String s : Block True a b : t)  = String (dropSpaceEnd s) : strip (Block False a b : t)
-strip (Block  a True b : String s : t) = Block  a False b : strip (String (dropSpaceBegin s) : t)
-strip (Output a True b : String s : t) = Output a False b : strip (String (dropSpaceBegin s) : t)
-strip (Block a b s : t)                = Block a b s : strip t
-strip (Output a b s : t)               = Output a b s : strip t
-strip (String s : t)                   = String s : strip t
-strip []                               = []
+strip (String s : Block b Strip r c : ts) =
+  case dropSpaceEnd s of
+    "" -> strip (Block b Keep r c : ts)
+    s' -> String s' : strip (Block b Keep r c : ts)
+strip (Block b l Strip c : String s : ts) =
+  case dropSpaceBegin s of
+    "" -> Block b l Keep c : strip ts
+    s' -> Block b l Keep c : strip (String s' : ts)
+strip (t : ts) = t : strip ts
+strip []       = []
 
-sugarBlock :: String -> ShowS
-sugarBlock s | Just t <- stripPrefix "let " s, Just u <- stripSuffix "=" t = (u++) . (" <- pure $ do { "++)
-sugarBlock "end" = ("};\n" ++)
-sugarBlock s     = close . (s ++) . open
-  where close | "else" `isPrefixOf` s = (" } "++)
-              | otherwise             = id
-        open  | "do" `isSuffixOf` s   = (" { " ++)
-              | any (`isSuffixOf` s) ["then", "->", "else"] = (" do { " ++)
-              | otherwise             = (";\n"++)
+indent :: Indent -> String -> ShowS
+indent (n:|_) s | n <= 0    = (s ++) . ('\n':)
+                | otherwise = (unlines (map (replicate n ' ' ++) (lines s)) ++)
 
-render :: [Token] -> ShowS
-render (b@(Block _ _ s) : t) | isImport b = (s++) . ('\n':) . render t
-                             | otherwise = sugarBlock s . render t
-render (Output _ _ s : t) = ("render (" ++) . (s ++) . (");\n"++) . render t
-render (String s : t)     = ("putStr " ++) . shows s . (";\n"++) . render t
-render []                 = id
+renderCode :: Indent -> String -> [Token] -> ShowS
+renderCode (_:|n:ns) "end" ts = render (n:|ns) ts
+renderCode (_:|[])   "end" _  = error "Unexpected {{end}} block"
+renderCode ns@(n:|_) c ts
+  | "let" `isPrefixOf` c && "do" `isSuffixOf` c = go (n + 4 <| ns) c
+  | "let" `isPrefixOf` c && "="  `isSuffixOf` c = go (n + 4 <| ns) (c ++ " do")
+  | any (`isSuffixOf` c) ["then", "else", "->"] = go (n + 1 <| ns) (c ++ " do")
+  | "do" `isSuffixOf` c                         = go (n + 1 <| ns) c
+  | otherwise                                   = go ns c
+  where go ns' c' = indent ns c' . render ns' ts
+
+render :: Indent -> [Token] -> ShowS
+render n = go
+  where go (Block Comment _ _ _ : ts) = go ts
+        go (Block Code   _ _ c : ts)  = renderCode n c ts
+        go (Block Output _ _ c : ts)  = indent n ("render (" ++ c ++ ")") . go ts
+        go (String s : ts)            = indent n ("render " ++ show s)    . go ts
+        go []                         = id
 
 isImport :: Token -> Bool
-isImport (Block _ _ s) = "import " `isPrefixOf` s
+isImport (Block Code _ _ c) = "import " `isPrefixOf` c
 isImport _ = False
 
-renderMain :: [Token] -> String
-renderMain toks = let (imports, code) = partition isImport toks in
+renderModule :: [Token] -> String
+renderModule toks = let (imports, code) = partition isImport toks in
   "{-# LANGUAGE FlexibleInstances #-}\n\
   \{-# LANGUAGE DefaultSignatures #-}\n\
   \import Control.Monad\n\
@@ -84,7 +100,7 @@ renderMain toks = let (imports, code) = partition isImport toks in
   \import Data.Word\n\
   \import Data.Foldable\n\
   \import Data.Traversable\n"
-  ++ render imports "" ++
+  ++ render (0:|[]) imports "" ++
   "class Render a where\n\
   \  render :: a -> IO ()\n\
   \  default render :: Show a => a -> IO ()\n\
@@ -106,17 +122,16 @@ renderMain toks = let (imports, code) = partition isImport toks in
   \instance Render Float\n\
   \instance Render Double\n\
   \main :: IO ()\n\
-  \main = do {\n" ++ render code "" ++ "}\n"
+  \main = do\n" ++ render (1:|[]) code ""
 
 main :: IO ()
 main = do
   (opts,args) <- partition (isPrefixOf "-") <$> getArgs
   case args of
     [file] -> do
-      source <- readFile file
-      let code = renderMain $ strip $ parse source
+      code <- renderModule . strip . parse <$> readFile file
       if opts == ["-c"] then
         putStr code
       else
         readProcess "runhaskell" [] code >>= putStr
-    _ -> error "Usage: ehs [-c] FILE"
+    _ -> error "Usage: ihs [-c] FILE"
