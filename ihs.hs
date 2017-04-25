@@ -45,23 +45,27 @@ parseString s t@('{':'{':_) = String (reverse s) : parse t
 parseString t (c:s)         = parseString (c:t) s
 
 parseBlock :: (Strip -> String -> Token) -> String -> [Token]
-parseBlock f s = go [] (dropSpace s)
-  where go a ('-':'}':'}':t) = f Strip (reverse $ dropSpace a) : parse t
-        go a ('}':'}':t)     = f Keep  (reverse $ dropSpace a) : parse t
+parseBlock f s = go [] s
+  where go a ('-':'}':'}':t) = f Strip (reverse a) : parse t
+        go a ('}':'}':t)     = f Keep  (reverse a) : parse t
         go a (c:t)           = go (c:a) t
         go _ []              = error "Expected end of block }}"
 
 strip :: [Token] -> [Token]
 strip (String s : Block b Strip r c : ts) =
   case dropSpaceEnd s of
-    "" -> strip (Block b Keep r c : ts)
-    s' -> String s' : strip (Block b Keep r c : ts)
+    "" -> strip (stripBlock b Keep r c : ts)
+    s' -> String s' : strip (stripBlock b Keep r c : ts)
 strip (Block b l Strip c : String s : ts) =
   case dropSpaceBegin s of
-    "" -> Block b l Keep c : strip ts
-    s' -> Block b l Keep c : strip (String s' : ts)
+    "" -> stripBlock b l Keep c : strip ts
+    s' -> stripBlock b l Keep c : strip (String s' : ts)
+strip (Block b l r c : ts) = stripBlock b l r c : strip ts
 strip (t : ts) = t : strip ts
 strip []       = []
+
+stripBlock :: Block -> Strip -> Strip -> String -> Token
+stripBlock b l r = Block b l r . dropSpace
 
 indent :: Indent -> String -> ShowS
 indent (n:|_) s | n <= 0    = (s ++) . ('\n':)
