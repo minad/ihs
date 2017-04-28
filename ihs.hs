@@ -135,8 +135,7 @@ main = do
   case args of
     [file] -> do
       code <- renderModule . strip . parse <$> readFile file
-      if opts == ["-c"] then
-        putStr code
-      else
-        readProcess "runhaskell" [] code >>= putStr
+      if opts == ["-c"]
+        then putStr code
+        else readProcess "runhaskell" [] code >>= putStr
     _ -> error "Usage: ihs [-c] FILE"

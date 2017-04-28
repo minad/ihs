@@ -21,3 +21,5 @@ Take one down and pass it around {{=bottles (i-1)}} of beer on the wall.
 {{end}}
 {{end-}}
 ```
+
+This is free and unencumbered software released into the public domain.
