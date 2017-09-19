@@ -77,8 +77,8 @@ renderCode (_:|[])   "end" _  = error "Unexpected {{end}} block"
 renderCode ns@(n:|ns') c ts
   | "let" `isPrefixOf` c && "do" `isSuffixOf` c = go ns c (n + 4 <| ns)
   | "let" `isPrefixOf` c && "="  `isSuffixOf` c = go ns (c ++ " do") (n + 4 <| ns)
+  | "else" `isPrefixOf` c                       = go (n - 1 :| ns') (c ++ " do") ns
   | any (`isSuffixOf` c) ["then", "->"]         = go ns (c ++ " do") (n + 1 <| ns)
-  | "else" `isSuffixOf` c                       = go (n - 1 :| ns') (c ++ " do") ns
   | "do" `isSuffixOf` c                         = go ns c (n + 1 <| ns)
   | otherwise                                   = go ns c ns
   where go ns1 c1 ns2 = indent ns1 c1 . render ns2 ts
