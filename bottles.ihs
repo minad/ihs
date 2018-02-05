@@ -7,6 +7,9 @@ let bottles 0 = "no more bottles"
 {{-if i == 0 then-}}
 No more bottles of beer on the wall, no more bottles of beer.
 Go to the store and buy some more, 99 bottles of beer on the wall.
+{{-else if i == 0 then-}}
+{{=bottles i}} of beer on the wall, {{=bottles i}} of beer.
+Take one down and pass it around {{=bottles (i-1)}} of beer on the wall.
 {{-else-}}
 {{=bottles i}} of beer on the wall, {{=bottles i}} of beer.
 Take one down and pass it around {{=bottles (i-1)}} of beer on the wall.
