@@ -1,5 +1,5 @@
 name:                ihs
-version:             0.1.0.1
+version:             0.1.0.2
 synopsis:            Interpolated Haskell
 description:         This abomination allows you to quickly generate text files in a style similar to ERB from Ruby or PHP. But you stay typesafe!
 license:             PublicDomain
