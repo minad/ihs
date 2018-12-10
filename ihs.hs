@@ -2,8 +2,9 @@
 module Main (main) where
 
 import Data.Char (isSpace)
-import Data.List (isSuffixOf, isPrefixOf, partition, dropWhileEnd)
+import Data.List (isSuffixOf, isPrefixOf, partition, dropWhileEnd, stripPrefix)
 import Data.List.NonEmpty (NonEmpty(..), (<|))
+import Data.Maybe (mapMaybe)
 import System.Environment (getArgs)
 import System.Process (readProcess)
 
@@ -95,8 +96,8 @@ isImport :: Token -> Bool
 isImport (Block Code _ _ c) = "import " `isPrefixOf` c
 isImport _ = False
 
-renderModule :: [Token] -> String
-renderModule toks = let (imports, code) = partition isImport toks in
+renderModule :: [String] -> [Token] -> String
+renderModule defs toks = let (imports, code) = partition isImport toks in
   "{-# LANGUAGE FlexibleInstances #-}\n\
   \{-# LANGUAGE DefaultSignatures #-}\n\
   \import Control.Monad\n\
@@ -127,15 +128,19 @@ renderModule toks = let (imports, code) = partition isImport toks in
   \instance Render Float\n\
   \instance Render Double\n\
   \main :: IO ()\n\
-  \main = do\n" ++ render (1:|[]) code ""
+  \main = do\n"
+  ++ foldMap (\d -> " let " ++ d ++ "\n") defs
+  ++ render (1:|[]) code ""
 
 main :: IO ()
 main = do
   (opts,args) <- partition (isPrefixOf "-") <$> getArgs
+  let compile = "-c" `elem` opts
+      defs = mapMaybe (stripPrefix "-D") opts
   case args of
     [file] -> do
-      code <- renderModule . strip . parse <$> readFile file
-      if opts == ["-c"]
+      code <- renderModule defs . strip . parse <$> readFile file
+      if compile
         then putStr code
         else readProcess "runhaskell" [] code >>= putStr
     _ -> error "Usage: ihs [-c] FILE"

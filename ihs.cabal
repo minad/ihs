@@ -11,7 +11,6 @@ bug-reports:         https://github.com/minad/ihs/issues
 author:              Daniel Mendler <mail@daniel-mendler.de>
 maintainer:          Daniel Mendler <mail@daniel-mendler.de>
 copyright:           2017 Daniel Mendler
-category:            Language
 build-type:          Simple
 cabal-version:       >= 1.10
 tested-with:         GHC == 7.10.3, GHC == 8.0.1
